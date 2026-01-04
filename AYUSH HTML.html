@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Standalone Chat</title>
+    <!-- Load Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load SimplePeer library for WebRTC management -->
+    <script src="https://cdn.jsdelivr.net/gh/feross/simple-peer@9.11.0/simplepeer.min.js"></script>
+    <style>
+        /* Custom styles for video elements */
+        #localVideo, #remoteVideo {
+            width: 100%;
+            max-height: 40vh;
+            background-color: #1f2937; /* Dark background */
+            border-radius: 0.75rem; /* rounded-xl */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        .video-container {
+            display: grid;
+            gap: 1.5rem;
+            grid-template-columns: 1fr;
+        }
+        @media (min-width: 768px) {
+            .video-container {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-4 md:p-8">
+
+    <div id="app" class="max-w-6xl mx-auto">
+        <header class="text-center mb-10">
+            <h1 class="text-4xl font-extrabold text-indigo-600 mb-2">AYUSH Standalone WebRTC</h1>
+            <p class="text-gray-600">Secure, peer-to-peer video communication using **in-browser signaling (for demonstration)**.</p>
+        </header>
+
+        <!-- Connection Panel -->
+        <div id="setup-panel" class="bg-white p-6 md:p-8 rounded-xl shadow-lg mb-8 transition-all duration-300">
+            <h2 class="text-2xl font-semibold text-gray-800 mb-4">Start Call (Host) or Join Call (Peer)</h2>
+
+            <div class="space-y-4">
+                <div>
+                    <label for="signalingData" class="block text-sm font-medium text-gray-700">Signaling Data (Offer/Answer)</label>
+                    <textarea id="signalingData" rows="4" placeholder="Paste the signaling data (Offer or Answer) from the other user here." class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 transition duration-150"></textarea>
+                    <p class="text-xs text-gray-500 mt-1">This data is normally exchanged automatically by a server (like Firebase).</p>
+                </div>
+
+                <div class="flex flex-col md:flex-row gap-4">
+                    <button id="startButton" class="w-full py-3 px-4 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition duration-200 shadow-md transform hover:scale-[1.01]" onclick="startCall(true)">
+                        1. Start Call (Generate Offer)
+                    </button>
+                    <button id="joinButton" class="w-full py-3 px-4 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition duration-200 shadow-md transform hover:scale-[1.01]" onclick="startCall(false)">
+                        2. Join Call (Process Offer/Generate Answer)
+                    </button>
+                </div>
+                
+                <p class="text-xs text-red-500 mt-1 text-center font-semibold">Instructions: Click 'Start Call' (Host). Copy the large JSON output into the text box of the second user (Peer). Click 'Join Call' (Peer). Copy the new JSON output (Answer) back to the Host's text box and click 'Join Call' (Host).</p>
+            </div>
+
+            <p id="statusMessage" class="mt-4 text-center font-medium text-green-600 h-6">Ready to start.</p>
+        </div>
+
+        <!-- Video Display Area -->
+        <div id="video-panel" class="hidden">
+            <div class="video-container">
+                <div class="relative bg-gray-800 rounded-xl p-3">
+                    <h3 class="text-white font-semibold text-lg mb-2">Your Video (Local)</h3>
+                    <video id="localVideo" autoplay muted playsinline class="rounded-lg object-cover"></video>
+                </div>
+                <div class="relative bg-gray-800 rounded-xl p-3">
+                    <h3 class="text-white font-semibold text-lg mb-2">Remote Peer</h3>
+                    <video id="remoteVideo" autoplay playsinline class="rounded-lg object-cover"></video>
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="flex justify-center space-x-4 mt-8">
+                <button id="muteMicButton" class="p-3 bg-red-500 text-white rounded-full shadow-lg hover:bg-red-600 transition duration-150 transform hover:scale-105" onclick="toggleMic()">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0h6m-3-3v3m3-3v3m-3-3H6m-2 4h12M4 14a7 7 0 017-7m0 0a7 7 0 017 7m0 0v1h1m-1-1a7 7 0 01-7 7m0 0v4m0 0h6m-3-3v3m3-3v3m-3-3H6m-2 4h12m-3-3v-3m0 0a7 7 0 00-7-7m7 7v4m0 0h6m-3-3v3m3-3v3m-3-3H6m-2 4h12m-3-3v-3m0 0a7 7 0 00-7-7" /></svg>
+                </button>
+                <button id="muteCameraButton" class="p-3 bg-red-500 text-white rounded-full shadow-lg hover:bg-red-600 transition duration-150 transform hover:scale-105" onclick="toggleCamera()">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.55-4.55c.57-.57 1.4-.88 2.25-.88h.01c.53 0 1.05.2 1.44.59.39.39.59.91.59 1.44v13.52c0 .53-.2 1.05-.59 1.44-.39.39-.91.59-1.44.59h-.01c-.85 0-1.68-.31-2.25-.88L15 14m-1-4v4" /></svg>
+                </button>
+                <button id="endCallButton" class="p-3 bg-gray-500 text-white rounded-full shadow-lg hover:bg-gray-600 transition duration-150 transform hover:scale-105" onclick="hangUp()">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636l-3.536 3.536m3.536-3.536A9.95 9.95 0 0112 22C6.477 22 2 17.523 2 12S6.477 2 12 2c2.72 0 5.2.858 7.23 2.308l2.132 2.132M12 2v10m0 0l-3.536 3.536m3.536-3.536l-3.536-3.536m3.536 3.536h10" /></svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Hidden Message Box for errors/confirmations -->
+        <div id="messageBox" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden flex items-center justify-center p-4 z-50">
+            <div class="bg-white p-6 rounded-lg shadow-2xl max-w-sm w-full">
+                <h3 id="messageTitle" class="text-xl font-bold mb-3 text-red-600"></h3>
+                <p id="messageContent" class="text-gray-700 mb-4"></p>
+                <button onclick="hideMessageBox()" class="w-full py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables for WebRTC
+        let localStream = null;
+        let peer = null;
+        
+        // UI elements
+        const signalingDataEl = document.getElementById('signalingData');
+        const startButton = document.getElementById('startButton');
+        const joinButton = document.getElementById('joinButton');
+
+        // --- UI Utility Functions ---
+        window.showMessageBox = (title, content) => {
+            document.getElementById('messageTitle').textContent = title;
+            document.getElementById('messageContent').textContent = content;
+            document.getElementById('messageBox').classList.remove('hidden');
+        };
+
+        window.hideMessageBox = () => {
+            document.getElementById('messageBox').classList.add('hidden');
+        };
+
+        function setStatus(message, isError = false) {
+            const statusEl = document.getElementById('statusMessage');
+            statusEl.textContent = message;
+            statusEl.className = `mt-4 text-center font-medium h-6 ${isError ? 'text-red-500' : 'text-green-600'}`;
+        }
+
+        function toggleUIVisibility(inCall) {
+            document.getElementById('setup-panel').classList.toggle('hidden', inCall);
+            document.getElementById('video-panel').classList.toggle('hidden', !inCall);
+        }
+
+        // --- Media and Call Control ---
+
+        window.toggleMic = () => {
+            if (!localStream) return;
+            const audioTrack = localStream.getAudioTracks()[0];
+            if (audioTrack) {
+                audioTrack.enabled = !audioTrack.enabled;
+                const button = document.getElementById('muteMicButton');
+                button.classList.toggle('bg-red-500', audioTrack.enabled);
+                button.classList.toggle('bg-gray-500', !audioTrack.enabled);
+            }
+        };
+
+        window.toggleCamera = () => {
+            if (!localStream) return;
+            const videoTrack = localStream.getVideoTracks()[0];
+            if (videoTrack) {
+                videoTrack.enabled = !videoTrack.enabled;
+                const button = document.getElementById('muteCameraButton');
+                button.classList.toggle('bg-red-500', videoTrack.enabled);
+                button.classList.toggle('bg-gray-500', !videoTrack.enabled);
+            }
+        };
+
+        async function getLocalStream() {
+            try {
+                // Request video and audio
+                localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                const localVideo = document.getElementById('localVideo');
+                localVideo.srcObject = localStream;
+                setStatus('Local media ready.');
+                return localStream;
+            } catch (error) {
+                console.error("Error accessing media:", error);
+                showMessageBox('Media Error', 'Could not access camera and microphone. Please ensure permissions are granted.');
+                return null;
+            }
+        }
+
+        window.hangUp = () => {
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            if (peer) {
+                peer.destroy();
+                peer = null;
+            }
+
+            document.getElementById('localVideo').srcObject = null;
+            document.getElementById('remoteVideo').srcObject = null;
+            toggleUIVisibility(false);
+            setStatus('Call ended. Ready to start again.');
+            signalingDataEl.value = ''; // Clear signaling data
+        };
+
+        // --- WebRTC Signaling and Peer Logic ---
+
+        function createPeer(initiator, stream) {
+            // Destroy any existing peer before creating a new one
+            if (peer) {
+                peer.destroy();
+                peer = null;
+            }
+
+            setStatus(initiator ? 'Creating Offer...' : 'Creating Peer for Answer...');
+
+            peer = new SimplePeer({
+                initiator: initiator,
+                stream: stream,
+                trickle: false, // Use single offer/answer for manual signaling
+            });
+
+            // 1. Signaling (Generating SDP)
+            peer.on('signal', (data) => {
+                const sdp = JSON.stringify(data);
+                signalingDataEl.value = sdp;
+                
+                if (initiator) {
+                    setStatus('Offer generated. Copy the JSON above and send it to the other user.');
+                } else {
+                    setStatus('Answer generated. Copy the JSON above and send it back to the host.');
+                }
+            });
+
+            // 2. Receiving Remote Stream
+            peer.on('stream', (stream) => {
+                const remoteVideo = document.getElementById('remoteVideo');
+                remoteVideo.srcObject = stream;
+                setStatus('Connection established! Video stream received.');
+                toggleUIVisibility(true);
+            });
+
+            // 3. Connection Established
+            peer.on('connect', () => {
+                setStatus('WebRTC connection successfully established.', false);
+                console.log('Peer connection established!');
+            });
+
+            // 4. Error Handling
+            peer.on('error', (err) => {
+                console.error('Peer Error:', err);
+                hangUp();
+                showMessageBox('Connection Error', 'A WebRTC connection error occurred. Please try again.');
+            });
+
+            // 5. Peer close/disconnect
+            peer.on('close', () => {
+                setStatus('Peer disconnected.', true);
+                hangUp();
+                showMessageBox('Call Ended', 'The remote peer has disconnected.');
+            });
+
+            return peer;
+        }
+
+        window.startCall = async (initiator) => {
+            const stream = await getLocalStream();
+            if (!stream) return;
+
+            const inputData = signalingDataEl.value.trim();
+
+            if (initiator && inputData) {
+                // If Host clicks 'Start Call' but there's data, it means they are processing the ANSWER
+                // Fall through to the non-initiator logic to process the answer
+                initiator = false; 
+            }
+            
+            if (initiator) {
+                // Scenario 1: Host generates the OFFER
+                createPeer(true, stream);
+                
+            } else {
+                // Scenario 2 & 3: Peer processes OFFER or Host processes ANSWER
+                if (!inputData) {
+                    setStatus('Error: Paste the signaling data (Offer/Answer) before clicking "Join Call".', true);
+                    return;
+                }
+
+                try {
+                    const data = JSON.parse(inputData);
+
+                    // Check if we are processing a new offer (Peer) or an answer (Host)
+                    const isIncomingOffer = data.type === 'offer';
+                    
+                    // The peer who receives the offer is NOT the initiator
+                    createPeer(isIncomingOffer ? false : true, stream);
+
+                    // The peer signals the data it received
+                    peer.signal(data);
+                    
+                    setStatus(isIncomingOffer ? 'Offer processed. Generating answer...' : 'Answer processed. Connecting...');
+                    
+                } catch (e) {
+                    console.error("Invalid signaling data:", e);
+                    showMessageBox('Invalid Data', 'The signaling data is not valid JSON. Please copy the entire block.');
+                }
+            }
+            
+            // Show the video panel immediately after starting the process
+            toggleUIVisibility(true);
+        }
+
+        // --- Initial Setup ---
+        setStatus('Ready to start.');
+    </script>
+</body>
+</html>
